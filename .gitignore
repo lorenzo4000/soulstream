@@ -1,0 +1,6 @@
+bin/
+testenv/
+reference/
+todo
+*.o
+*.out
