@@ -2,5 +2,6 @@ bin/
 testenv/
 reference/
 todo
+run_testenv.sh
 *.o
 *.out
