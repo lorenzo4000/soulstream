@@ -31,12 +31,12 @@ if [ "$WHAT" = "all" ] || [ "$WHAT" = "client" ]; then
 	 -o ../bin/soulstream_client
 fi
 
-if [ "$WHAT" = "all" ] || [ "$WHAT" = "server" ]; then
-	## build server
-	$CC $CC_FLAGS $LIBS		     \
-		../src/server/*.c 		 \
-		./*.o 					 \
-	-o ../bin/soulstream_server
-fi
+#	if [ "$WHAT" = "all" ] || [ "$WHAT" = "server" ]; then
+#		## build server
+#		$CC $CC_FLAGS $LIBS		     \
+#			../src/server/*.c 		 \
+#			./*.o 					 \
+#		-o ../bin/soulstream_server
+#	fi
 
 ## build gui

@@ -21,7 +21,7 @@
 #include <poll.h>
 #include <resolv.h>
 
-#define MAX_NODES 1024
+#define MAX_NODES 256
 typedef short Node;
 extern struct pollfd node_fd[MAX_NODES]; 
 extern struct sockaddr_in node_address[MAX_NODES];
