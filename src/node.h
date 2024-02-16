@@ -20,6 +20,7 @@
 #include <sys/socket.h>
 #include <poll.h>
 #include <resolv.h>
+#include <unistd.h>
 
 #define MAX_NODES 256
 typedef short Node;
@@ -30,7 +31,9 @@ extern unsigned int node_number;
 void _nodes_init_pools();
 Node node_add(struct pollfd, struct sockaddr_in);
 Node node_new(struct in_addr, short);
+int node_close(Node);
 int node_remove(Node);
+int _nodes_close_pools();
 int node_bind(Node);
 int node_connect(Node);
 Node node_accept(Node);

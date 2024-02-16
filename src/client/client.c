@@ -44,18 +44,18 @@ int peer_connect(Peer* peer) {
 	unsigned int token = node_number * 0x69;
 
 	// ** send ConnectToPeer to The Mainframe **
-	// printf("sending ConnectToPeer ...\n");
-	// 
-	// if(strlen(peer->username) > USERNAME_MAX_LENGTH) {
-	// 	printf("error: invalid peer username length in peer_connect\n");
-	// 	return -1;
-	// }
-	// 
-	// pcode(&msg, SERVER_CONNECT_TO_PEER);
-	// p32(&msg, token);
-	// pstring(&msg, peer->username, strlen(peer->username));
-	// pstring(&msg, (char*)&peer->connection, 1);
-	// send_message(&msg, node_fd[the_mainframe].fd);
+	printf("sending ConnectToPeer ...\n");
+	
+	if(strlen(peer->username) > USERNAME_MAX_LENGTH) {
+		printf("error: invalid peer username length in peer_connect\n");
+		return -1;
+	}
+	
+	pcode(&msg, SERVER_CONNECT_TO_PEER);
+	p32(&msg, token);
+	pstring(&msg, peer->username, strlen(peer->username));
+	pstring(&msg, (char*)&peer->connection, 1);
+	send_message(&msg, node_fd[the_mainframe].fd);
 
 	// ** send PeerInit to peer **
 	printf("sending PeerInit ...\n");
@@ -63,21 +63,10 @@ int peer_connect(Peer* peer) {
 	printf("user_len : %ld\n", user_len);
 	printf("username : %s\n", username);
 
-	printf("length of the message before putting stuff into it : %d\n", message_buffer_len(msg));
 	pcode(&msg, PEERINIT_PEER_INIT);
-	printf("length of the message : %d\n", message_buffer_len(msg));
 	pstring(&msg, username, user_len);
-	printf("length of the message : %d\n", message_buffer_len(msg));
 	pstring(&msg, (char*)&peer->connection, 1);
-	printf("length of the message : %d\n", message_buffer_len(msg));
-// 	p32(&msg, 0);
-	printf("final length of the message : %d\n", message_buffer_len(msg));
-	// printf("actual message that we would send : \n");
-	// unsigned char b;
-	// while(u(&msg, &b)) {
-	// 	printf("%02hhx ", b);
-	// }
-	// putchar('\n');
+ 	p32(&msg, 0);
 	peer_send_message(*peer, &msg);
 
 	return 0;
@@ -540,7 +529,7 @@ SHELL_FUNCTION(search, {char* str;}, "search file in soulseek network") {
 }
 
 SHELL_FUNCTION(download, {char* user; char* file;}, "request file from user") {
-	fprintf(stdout, "requesting `%s` of length %ld from `%s` ...\n", args->file, strlen(args->file), args->user);
+	printf("requesting `%s` of length %ld from `%s` ...\n", args->file, strlen(args->file), args->user);
 
 	Peer* peer = peer_from_user(args->user);
 	if(!peer) {
@@ -552,19 +541,54 @@ SHELL_FUNCTION(download, {char* user; char* file;}, "request file from user") {
 	pstring(&msg, args->file, strlen(args->file));
 	peer_send_message(*peer, &msg);
 	
-	while(1) {}
+	unsigned int download_token = 0;
+//	while(1) 
+	{
+		printf("waiting for TransferRequest...\n");
+		MessageCode code = 0;
+		unsigned int direction = 0;
+		unsigned int filename_length = 0;
+		char *filename = NULL;
+		unsigned long long filesize = 0;
+		peer_read_message(*peer, &msg);
+		ucode(&msg, MESSAGE_TYPE_PEER, &code);
+		if(code != PEER_TRANSFER_REQUEST) {
+			printf("Got something else : `%u`!", code);
+			return;
+		}
+		u32(&msg, &direction);
+		u32(&msg, &download_token);
+		u32(&msg, &filename_length);
+		if(!(filename = malloc(filename_length))) {
+			perror("malloc");
+			exit(1);
+		}
+		ustring(&msg, filename, filename_length);
+		if(direction) {
+			u64(&msg, &filesize);
+		}
+		printf("Got a TransferRequest for file `%s` of size `%lld`!\n", filename, filesize);
 
-	pcode(&msg, PEER_PLACE_IN_QUEUE_REQUEST);
-	pstring(&msg, args->file, strlen(args->file));
+	//	if(!strcmp(filename, args->file)) {
+	//		break;
+	//	}
+
+		free(filename);
+	}
+
+	printf("The TransferRequest is for OUR file that we requested so send positive TransferResponse!");
+
+	pcode(&msg, PEER_UPLOAD_RESPONSE);
+	p32(&msg, download_token);
+	p(&msg, 1);
 	peer_send_message(*peer, &msg);
 
-	// peer_read_message(*peer, &msg);
-	// printf("place in queue response (?) : \n");
-	// unsigned char b;
-	// while(u(&msg, &b)) {
-	// 	printf("%02hhx ", b);
-	// }
-	// putchar('\n');
+	{
+		MessageCode code = 0;
+		peer_read_message(*peer, &msg);
+		ucode(&msg, MESSAGE_TYPE_PEER, &code);
+		printf("got response for UploadResponse, code : %d\n", code);
+	}
 }
 
 SHELL_SCOPE(
@@ -735,5 +759,7 @@ int main() {
 		shell_terminal_update();		
 	}
 
+	// 		* clear and exit *
+	_nodes_close_pools();
 	return 0;
 }

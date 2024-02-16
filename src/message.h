@@ -23,15 +23,18 @@ typedef enum MessageType {
 	MESSAGE_TYPE_PEERINIT
 } MessageType;
 
-#define MESSAGE_CODE(type, code) \
-	((MessageCode)code) | (type << (sizeof(MessageCode) * 8 - 3))
+#define MESSAGE_CODE(type, code) ( \
+	((MessageCode)code) | (type << (sizeof(MessageCode) * 8 - 3)) \
+)
 
-#define MESSAGE_CODE_TYPE(code) \
-	((MessageCode)code) >> (sizeof(MessageCode) * 8 - 3)
+#define MESSAGE_CODE_TYPE(code) ( \
+	((MessageCode)code) >> (sizeof(MessageCode) * 8 - 3) \
+)
 
-#define MESSAGE_CODE_CODE(code) \
+#define MESSAGE_CODE_CODE(code) ( \
 	(((MessageCode)code) << (3)) \
-						 >> (3)
+						 >> (3)  \
+)
 
 #define SERVER_LOGIN MESSAGE_CODE(MESSAGE_TYPE_SERVER, 						 1)
 #define SERVER_SET_LISTEN_PORT MESSAGE_CODE(MESSAGE_TYPE_SERVER, 				 2)

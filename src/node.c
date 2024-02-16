@@ -62,14 +62,29 @@ Node node_new(struct in_addr ipv4, short port) {
 	return node_add(_node_fd, _node_address);
 }
 
-int node_remove(Node node) {
+int node_close(Node node) {
 	if(node_number <= 0) {
+		return -1;
+	}
+
+	return close(node_fd[node].fd);
+}
+
+int node_remove(Node node) {
+	if(node_close(node) < 0) {
 		return -1;
 	}
 
 	node_fd[node].fd = -1;
 	node_number--;
 
+	return 0;
+}
+
+int _nodes_close_pools() {
+	for(Node n = 0; n < MAX_NODES; n++) {
+		node_close(n);
+	}
 	return 0;
 }
 
