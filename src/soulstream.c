@@ -7,20 +7,18 @@
    (at your option) any later version. See http://www.gnu.org/copyleft/gpl.html 
    the full text of the license.											    
 */
-
-#include <string.h>
-#include <assert.h>
+#include <soulstream.h>
 
 #include <node.h>
 #include <peer.h>
 #include <message.h>
 #include <network.h>
 #include <password.h>
-#include <shell.h>
+
+#include <string.h>
+#include <assert.h>
 #include <sys/time.h>
 #include <errno.h>
-
-#define RC_FILE "/home/lorenzo/.ss.rc"
 
 #define MAINFRAME_NAME "localhost"
 #define MAINFRAME_PORT  2240
@@ -29,14 +27,16 @@
 
 // ** global memory
 #define INITIAL_MSG_SIZE 2048
-MessageBuffer msg;
-Node the_mainframe;
+static MessageBuffer msg;
+static Node the_mainframe;
+static Node in_connections_master;
+
+#define MAX_DOWNLOADS_IN_QUEUE 256
+static char* download_queue[MAX_DOWNLOADS_IN_QUEUE];
 
 #define SERVER_PORT 2245
 
-// ** configurable stuff
-SHELL_VAR(char, [USERNAME_MAX_LENGTH + 1], username, "your soulseek username");
-SHELL_VAR(char, [PASSWORD_MAX_LENGTH + 1], password, "yout soulseek password");
+static SoulstreamConfig soulstream_config = {0};
 
 int peer_connect(Peer* peer) {
 	assert(peer);
@@ -59,12 +59,12 @@ int peer_connect(Peer* peer) {
 
 	// ** send PeerInit to peer **
 	printf("sending PeerInit ...\n");
-	size_t user_len = strlen(username);
+	size_t user_len = strlen(soulstream_config.username);
 	printf("user_len : %ld\n", user_len);
-	printf("username : %s\n", username);
+	printf("username : %s\n", soulstream_config.username);
 
 	pcode(&msg, PEERINIT_PEER_INIT);
-	pstring(&msg, username, user_len);
+	pstring(&msg, soulstream_config.username, user_len);
 	pstring(&msg, (char*)&peer->connection, 1);
  	p32(&msg, 0);
 	peer_send_message(*peer, &msg);
@@ -185,9 +185,9 @@ int interpret_peer_message(MessageBuffer* msg, Peer* peer) {
 	assert(peer);
 
 	MessageType message_type;
-	message_type = peer->connection == CONNECTION_TYPE_N ? MESSAGE_TYPE_PEERINIT	 :
-				   peer->connection == CONNECTION_TYPE_P ? MESSAGE_TYPE_PEER	 	 : 
-				   peer->connection == CONNECTION_TYPE_F ?	MESSAGE_TYPE_FILE	 	 :
+	message_type = peer->connection == CONNECTION_TYPE_N ? MESSAGE_TYPE_PEERINIT	:
+				   peer->connection == CONNECTION_TYPE_P ? MESSAGE_TYPE_PEER	 	: 
+				   peer->connection == CONNECTION_TYPE_F ? MESSAGE_TYPE_FILE	 	:
 				   peer->connection == CONNECTION_TYPE_D ? MESSAGE_TYPE_DISTRIBUTED : -1;
 
 	printf("message_type: %d\n", message_type);
@@ -422,12 +422,46 @@ int interpret_peer_message(MessageBuffer* msg, Peer* peer) {
 			}
 			
 			break;
+
+		case PEER_TRANSFER_REQUEST: 
+			unsigned int direction = 0;
+			unsigned int download_token = 0;
+			unsigned int filename_length = 0;
+			char *filename = NULL;
+			unsigned long long filesize = 0;
+			u32(msg, &direction);
+			u32(msg, &download_token);
+			u32(msg, &filename_length);
+			if(!(filename = malloc(filename_length))) {
+				perror("malloc");
+				exit(1);
+			}
+			ustring(msg, filename, filename_length);
+			if(direction) {
+				u64(msg, &filesize);
+			}
+
+			printf("Got a TransferRequest for file `%s` of size `%lld`!\n", filename, filesize);
+
+			for(int i = 0; i < MAX_DOWNLOADS_IN_QUEUE; i++) {
+				if(download_queue[i] && !strcmp(filename, download_queue[i])) {
+					printf("The TransferRequest is for a file that we requested so send positive TransferResponse!");
+
+					pcode(msg, PEER_UPLOAD_RESPONSE);
+					p32(msg, download_token);
+					p(msg, 1);
+					peer_send_message(*peer, msg);
+				}
+			}
+
+
+			free(filename);
+			break;
 	}
 	
 	 
 	return 0;
 }
-
 
 int interpret_mainframe_message(MessageBuffer* msg) {
 	assert(msg);
@@ -452,31 +486,27 @@ int interpret_mainframe_message(MessageBuffer* msg) {
 	return 0;
 }
 
-SHELL_FUNCTION(dump_msg, {}, "stuff") {
-	unsigned char b;
-	while(u(&msg, &b)) {
-		printf("%02hhx ", b);
-	}
-	putchar('\n');
+int set_listen_port(int port) {
+	printf("setting listen port to %d ...\n", port);
+	pcode(&msg, SERVER_SET_LISTEN_PORT);
+	p32(&msg, port);
+	p(&msg, 0);
+	p32(&msg, 0);
+	send_message(&msg, node_fd[the_mainframe].fd);
+
+	return 0;
 }
 
+int login() {
+	char* user = soulstream_config.username;
+	char* pass = soulstream_config.password;
 
-SHELL_FUNCTION(login, {char* user; char* pass;}, "login into the mainframe") {
-	if(!args->user || !args->pass) {
-		assert(!args->pass);
-		assert(!args->user);
-		
-		// use config stuff
-		args->user = username;
-		args->pass = password;
-
-		printf("our pass: %s --- our user: %s\n", password, username);
-	}
-
+	printf("login: our pass: %s --- our user: %s\n", pass, user);
+	
 	// ** calculate MD5 of user + pass
 	char user_concat[USERNAME_MAX_LENGTH + PASSWORD_MAX_LENGTH + 1] = {0};
-	strcpy(user_concat, args->user);
-	strcat(user_concat, args->pass);
+	strcpy(user_concat, user);
+	strcat(user_concat, pass);
 	
 	unsigned char digest[MD5_DIGEST_LENGTH];
 	struct MD5Context md5;
@@ -491,8 +521,8 @@ SHELL_FUNCTION(login, {char* user; char* pass;}, "login into the mainframe") {
 	if(pcode(&msg, SERVER_LOGIN) < 0) {
 		printf("error: pcode failed!\n");
 	}
-	pstring(&msg, args->user, strlen(args->user));
-	pstring(&msg, args->pass, strlen(args->pass));
+	pstring(&msg, user, strlen(user));
+	pstring(&msg, pass, strlen(pass));
 	p32(&msg, 160);
 	pstring(&msg, user_concat_hash, strlen(user_concat_hash));
 	p32(&msg, 0x11);
@@ -503,22 +533,15 @@ SHELL_FUNCTION(login, {char* user; char* pass;}, "login into the mainframe") {
 		printf("%02hhx ", b);
 	}
 	putchar('\n');
+	
+	return 0;
 }
 
-SHELL_FUNCTION(set_listen_port, {int port;}, "give port to The Mainframe") {
-	printf("setting listen port to %d ...\n", args->port);
-	pcode(&msg, SERVER_SET_LISTEN_PORT);
-	p32(&msg, args->port);
-	p(&msg, 0);
-	p32(&msg, 0);
-	send_message(&msg, node_fd[the_mainframe].fd);
-}
-
-SHELL_FUNCTION(search, {char* str;}, "search file in soulseek network") {
-	printf("asking server to search '%s'...\n", args->str);
+int search(char* str) {
+	printf("asking server to search '%s'...\n", str);
 	pcode(&msg, SERVER_FILE_SEARCH);
 	p32(&msg, 0xB00BA);
-	pstring(&msg, args->str, strlen(args->str));
+	pstring(&msg, str, strlen(str));
 	send_message(&msg, node_fd[the_mainframe].fd);
 	read_message(&msg, node_fd[the_mainframe].fd);
 	unsigned char b;
@@ -526,85 +549,39 @@ SHELL_FUNCTION(search, {char* str;}, "search file in soulseek network") {
 		printf("%02hhx ", b);
 	}
 	putchar('\n');
+
+	return 0;
 }
 
-SHELL_FUNCTION(download, {char* user; char* file;}, "request file from user") {
-	printf("requesting `%s` of length %ld from `%s` ...\n", args->file, strlen(args->file), args->user);
+int download(char* user, char* file) {
+	printf("requesting `%s` of length %ld from `%s` ...\n", file, strlen(file), user);
 
-	Peer* peer = peer_from_user(args->user);
+	Peer* peer = peer_from_user(user);
 	if(!peer) {
-		peer = user_connect(args->user, CONNECTION_TYPE_P);
+		peer = user_connect(user, CONNECTION_TYPE_P);
 		assert(peer);
 	}
 
 	pcode(&msg, PEER_QUEUE_UPLOAD);
-	pstring(&msg, args->file, strlen(args->file));
+	pstring(&msg, file, strlen(file));
 	peer_send_message(*peer, &msg);
 	
-	unsigned int download_token = 0;
-//	while(1) 
-	{
-		printf("waiting for TransferRequest...\n");
-		MessageCode code = 0;
-		unsigned int direction = 0;
-		unsigned int filename_length = 0;
-		char *filename = NULL;
-		unsigned long long filesize = 0;
-		peer_read_message(*peer, &msg);
-		ucode(&msg, MESSAGE_TYPE_PEER, &code);
-		if(code != PEER_TRANSFER_REQUEST) {
-			printf("Got something else : `%u`!", code);
-			return;
-		}
-		u32(&msg, &direction);
-		u32(&msg, &download_token);
-		u32(&msg, &filename_length);
-		if(!(filename = malloc(filename_length))) {
-			perror("malloc");
-			exit(1);
-		}
-		ustring(&msg, filename, filename_length);
-		if(direction) {
-			u64(&msg, &filesize);
-		}
-		printf("Got a TransferRequest for file `%s` of size `%lld`!\n", filename, filesize);
+	// add file to download queue
+	for(int i = 0; i < MAX_DOWNLOADS_IN_QUEUE; i++) {
+		if(!download_queue[i]) {
+			// found empty spot
+			download_queue[i] = file;
 
-	//	if(!strcmp(filename, args->file)) {
-	//		break;
-	//	}
-
-		free(filename);
+			return 0;
+		}
 	}
 
-	printf("The TransferRequest is for OUR file that we requested so send positive TransferResponse!");
-
-	pcode(&msg, PEER_UPLOAD_RESPONSE);
-	p32(&msg, download_token);
-	p(&msg, 1);
-	peer_send_message(*peer, &msg);
-
-	{
-		MessageCode code = 0;
-		peer_read_message(*peer, &msg);
-		ucode(&msg, MESSAGE_TYPE_PEER, &code);
-		printf("got response for UploadResponse, code : %d\n", code);
-	}
+	return -1;
 }
 
-SHELL_SCOPE(
-		// vars
-	SHELL_SCOPE_ENTRY(username),
-	SHELL_SCOPE_ENTRY(password),
-		
-		// functions
-	SHELL_SCOPE_ENTRY(login),
-	SHELL_SCOPE_ENTRY(set_listen_port),
-	SHELL_SCOPE_ENTRY(search),
-	SHELL_SCOPE_ENTRY(download),
-	SHELL_SCOPE_ENTRY(dump_msg)
-);
+int soulstream_init(SoulstreamConfig conf) {
+	soulstream_config = conf;
 
-int main() {
 	// *** initialize stuff *** 
 	msg = new_message_buffer(INITIAL_MSG_SIZE);
 	_nodes_init_pools();
@@ -653,113 +630,115 @@ int main() {
 	//     ** IN **
 	
 	// *** create master node ***
-	Node master = node_new(
+	in_connections_master = node_new(
 		(struct in_addr) {INADDR_ANY},
 		htons(SERVER_PORT)
 	);
-    if(master < 0) {  
+    if(in_connections_master < 0) {  
         printf("error: could not create master node!\n");
        	return -1;
     }  
 
-	if(node_bind(master) < 0) {
+	if(node_bind(in_connections_master) < 0) {
         printf("error: could not bind master connection socket to master_address! maybe another process is using port %d ?\n", SERVER_PORT);
        	return -1;
     }  
 
 	// *** start listening ***
-	if(listen(node_fd[master].fd, MAX_NODES) < 0) {
+	if(listen(node_fd[in_connections_master].fd, MAX_NODES) < 0) {
         printf("error: could not start listening for connections on master socket!\n");
        	return -1;
     }  
 
-
-	//
-	// 	  ** main loop **
-	
-	// add stdin as trigger
-	node_add((struct pollfd){
-		.fd = STDIN_FILENO,
-		.events = 1,
-		.revents = 0
-	},
-	(struct sockaddr_in){});
-
-	shell_terminal_init();
-	shell_rc_from_file(RC_FILE);
-
-	while(!shell_terminal_should_close) {
-		switch(poll(node_fd, sizeof(node_fd) / sizeof(struct pollfd), -1)) {
-			case -1:
-				if(errno != EINTR) {
-					perror("poll");
-					return -1;
-				}	
-			case 0:
-				break;
-			default:
-				if(node_fd[the_mainframe].revents) {
-					read_message(&msg, node_fd[the_mainframe].fd);
-					interpret_mainframe_message(&msg);
-				}
-
-				if(node_fd[master].revents) { 
-					// ** master activity means new IN connection
-					if(node_number >= MAX_NODES || peer_number >= MAX_PEERS) {
-						printf("error: connection limit reached!\n");
-						return -1;
-					}
-
-					Node new_client = node_accept(master);
-					if(new_client < 0) {
-						printf("error: could not accept new client connection\n");
-						return -1;
-					}
-
-					if(!peer_add((Peer){.node = new_client, .connection = CONNECTION_TYPE_N})) {
-						printf("error: could not create new peer!\n");
-					}
-
-					printf("info: new connection accepted! socket fd: %d , ip: %x , port: %d\n", 
-					   node_fd[new_client].fd, node_address[new_client].sin_addr.s_addr, ntohs(node_address[new_client].sin_port));  
-				}
-
-				for(int i = 0; i < MAX_PEERS; i++) {
-					// ** peer activity means IO operations
-					if(peer_fd(peers[i]).revents) {
-						switch(read_message(&msg, peer_fd(peers[i]).fd)) {
-							case -1:
-								printf("error: could not read peer message\n");
-								break;
-							case  0:
-								// means connection closed
-								if(close(peer_fd(peers[i]).fd) < 0) {
-									perror("error: could not close client socket : ");
-									return -1;
-								}
-
-								printf("successfully closed client socket %d!\n", peer_fd(peers[i]).fd);
-
-								peer_remove(&peers[i]);
-								break;
-							default:
-								// print the cute message ^.^
-								printf("info: received something from people!! POG \n");
-								
-								if(interpret_peer_message(&msg, &peers[i]) < 0) {
-									printf("error: invalid message\n");
-								};
-
-								break;
-						}
-					}
-				}
-		}
-
-		shell_terminal_update();		
+	if(login() < 0) {
+		printf("error: could not login!\n");
+		return -1;
 	}
 
-	// 		* clear and exit *
+	if(set_listen_port(SERVER_PORT) < 0) {
+		printf("error: could not set listening port!\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+// this a blocking function
+int soulstream_update() {
+	switch(poll(node_fd, sizeof(node_fd) / sizeof(struct pollfd), -1)) {
+		case -1:
+			if(errno != EINTR) {
+				perror("poll");
+				return -1;
+			}	
+		case 0:
+			break;
+		default:
+			if(node_fd[the_mainframe].revents) {
+				read_message(&msg, node_fd[the_mainframe].fd);
+				interpret_mainframe_message(&msg);
+			}
+
+			if(node_fd[in_connections_master].revents) { 
+				// ** master activity means new IN connection
+				if(node_number >= MAX_NODES || peer_number >= MAX_PEERS) {
+					printf("error: connection limit reached!\n");
+					return -1;
+				}
+
+				Node new_client = node_accept(in_connections_master);
+				if(new_client < 0) {
+					printf("error: could not accept new client connection\n");
+					return -1;
+				}
+
+				if(!peer_add((Peer){.node = new_client, .connection = CONNECTION_TYPE_N})) {
+					printf("error: could not create new peer!\n");
+				}
+
+				printf("info: new connection accepted! socket fd: %d , ip: %x , port: %d\n", 
+				   node_fd[new_client].fd, node_address[new_client].sin_addr.s_addr, ntohs(node_address[new_client].sin_port));  
+			}
+
+			for(int i = 0; i < MAX_PEERS; i++) {
+				// ** peer activity means IO operations
+				if(peer_fd(peers[i]).revents) {
+					switch(read_message(&msg, peer_fd(peers[i]).fd)) {
+						case -1:
+							printf("error: could not read peer message\n");
+							break;
+						case  0:
+							// means connection closed
+							if(close(peer_fd(peers[i]).fd) < 0) {
+								perror("error: could not close client socket : ");
+								return -1;
+							}
+
+							printf("successfully closed client socket %d!\n", peer_fd(peers[i]).fd);
+
+							peer_remove(&peers[i]);
+							break;
+						default:
+							// print the cute message ^.^
+							printf("info: received something from people!! POG \n");
+							
+							if(interpret_peer_message(&msg, &peers[i]) < 0) {
+								printf("error: invalid message\n");
+							};
+
+							break;
+					}
+				}
+			}
+	}
+
+	return 0;
+}
+
+int soulstream_close() {
 	_nodes_close_pools();
+
+	// ...
+	
 	return 0;
 }
