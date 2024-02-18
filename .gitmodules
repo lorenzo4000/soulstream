@@ -1,0 +1,3 @@
+[submodule "src/tui/shell"]
+	path = src/tui/shell
+	url = https://github.com/lorenzo4000/shell.c
