@@ -10,7 +10,7 @@ OPTIONS="$2"
 
 CC="gcc"
 CC_FLAGS="-std=c99 -Wall -I../src/"
-LIBS="-lz -lmd -lresolv"
+LIBS="-lz -lmd -lresolv -lncurses"
 
 if [ "$OPTIONS" = "-d" ]; then 
 	CC_FLAGS="${CC_FLAGS} -ggdb"
@@ -31,10 +31,19 @@ if [ "$WHAT" = "all" ] || [ "$WHAT" = "test" ]; then
  	 -o ../bin/soulstream_test
 fi
 
-# if [ "$WHAT" = "all" ] || [ "$WHAT" = "client" ]; then
-# 	## build tui
-# 	$CC $CC_FLAGS $LIBS  		 \
-# 		../src/tui/*.c 		 \
-# 		./*.o 					 \
-# 	 -o ../bin/soulstream_tui
-# fi
+if [ "$WHAT" = "all" ] || [ "$WHAT" = "tui" ]; then
+	## build tui
+	
+	# shell.c
+	cd ../src/tui/shell/
+	./build.sh
+
+	# tui
+	cd ../../../build
+ 	$CC $CC_FLAGS $LIBS  		  \
+	  -I../src/tui/shell/ 		  \
+ 		../src/tui/*.c 		 	  \
+		../src/tui/shell/*.o	  \
+ 		./*.o 					  \
+ 	 -o ../bin/soulstream_tui
+fi

@@ -8,56 +8,91 @@
    the full text of the license.											    
 */
 
-
 #include <shell.h>
+#include <soulstream.h>
 
-#define RC_FILE "/home/lorenzo/.ss.rc"
-
-// ** configurable stuff
-SHELL_VAR(char, [USERNAME_MAX_LENGTH + 1], username, "your soulseek username");
-SHELL_VAR(char, [PASSWORD_MAX_LENGTH + 1], password, "yout soulseek password");
-
-SHELL_SCOPE(
-		// vars
-	SHELL_SCOPE_ENTRY(username),
-	SHELL_SCOPE_ENTRY(password),
-		
-		// functions
-	SHELL_SCOPE_ENTRY(login),
-	SHELL_SCOPE_ENTRY(set_listen_port),
-	SHELL_SCOPE_ENTRY(search),
-	SHELL_SCOPE_ENTRY(download),
-	SHELL_SCOPE_ENTRY(dump_msg)
-);
-
-SHELL_FUNCTION(dump_msg, {}, "stuff") {
-	unsigned char b;
-	while(u(&msg, &b)) {
-		printf("%02hhx ", b);
-	}
-	putchar('\n');
-}
+#include <pthread.h>
+#include <signal.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 
-SHELL_FUNCTION(login, {char* user; char* pass;}, "login into the mainframe") {
-}
-
-SHELL_FUNCTION(set_listen_port, {int port;}, "give port to The Mainframe") {
-}
+static const SoulstreamConfig SS_CONFIG = {
+	.username = "soulstream",
+	.password = "password"
+};
 
 SHELL_FUNCTION(search, {char* str;}, "search file in soulseek network") {
+	ss_search(args->str);
 }
 
 SHELL_FUNCTION(download, {char* user; char* file;}, "request file from user") {
+	ss_download(args->user, args->file);
 }
 
 
-int main() {
-	shell_terminal_init();
-	shell_rc_from_file(RC_FILE);
+SHELL_SCOPE(
+	// functions
+	SHELL_SCOPE_ENTRY(search),
+	SHELL_SCOPE_ENTRY(download),
+);
+
+void* main_shell(void* args) {
+	int shell_log = open("./shell.log", O_RDWR | O_CREAT | O_APPEND, 00700);
+	if(shell_log < 0) {
+		perror("open");
+		return NULL;
+	}
+
+	if(shell_terminal_init(shell_log) < 0) {
+		printf("error: could not initialize shell!\n");
+		return NULL;
+	}
 
 	while(!shell_terminal_should_close) {
 		// ...
 		shell_terminal_update();		
 	}
+
+	if(close(shell_log) < 0) {
+		perror("close");
+	}
+
+	return NULL;
+}
+
+void* main_engine(void* args) {
+	while(1) {
+		ss_update();
+	}
+
+	return NULL;
+}
+
+int main() {
+	ss_init(SS_CONFIG);
+
+	pthread_t engine_thread;
+	pthread_t shell_thread;
+
+	// create threads
+	if(pthread_create(&engine_thread, NULL, main_engine, NULL) ||
+	   pthread_create(&shell_thread, NULL, main_shell, NULL) ){
+		perror("pthread_create");
+		return -1;
+	}
+
+	// wait for shell to finish
+	if(pthread_join(shell_thread, NULL) ){
+		perror("pthread_create");
+		return -1;
+	}
+
+	// brutally kill engine thread
+	pthread_kill(engine_thread, SIGKILL); 
+
+	ss_close();
+
+	return 0;
 }

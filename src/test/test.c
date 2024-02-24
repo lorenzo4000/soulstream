@@ -2,20 +2,18 @@
 #include <soulstream.h>
 
 int main() {
-	printf("Hello, World!\n");
-
 	const SoulstreamConfig config = {
 		.username = "soulstream",
 		.password = "password"
 	};
 
-	soulstream_init(config);
+	ss_init(config);
 
-	search("test");
+	ss_search("test");
 
 	while(1) {
-		soulstream_update();
+		ss_update();
 	}
 
-	soulstream_close();
+	ss_close();
 }

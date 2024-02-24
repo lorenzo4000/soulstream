@@ -8,14 +8,14 @@ typedef struct SoulstreamConfig {
 	char password[PASSWORD_MAX_LENGTH];
 } SoulstreamConfig;
 
-int soulstream_init(SoulstreamConfig);
-int soulstream_update();
-int soulstream_close();
+int ss_init(SoulstreamConfig);
+int ss_update();
+int ss_close();
 
-int login();
-int set_listen_port(int);
-int search(char*);
-int download(char*, char*);
+int ss_login();
+int ss_set_listen_port(int);
+int ss_search(char*);
+int ss_download(char*, char*);
 
 
 #endif // SS_H

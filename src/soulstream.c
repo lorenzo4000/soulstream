@@ -486,7 +486,7 @@ int interpret_mainframe_message(MessageBuffer* msg) {
 	return 0;
 }
 
-int set_listen_port(int port) {
+int ss_set_listen_port(int port) {
 	printf("setting listen port to %d ...\n", port);
 	pcode(&msg, SERVER_SET_LISTEN_PORT);
 	p32(&msg, port);
@@ -497,7 +497,7 @@ int set_listen_port(int port) {
 	return 0;
 }
 
-int login() {
+int ss_login() {
 	char* user = soulstream_config.username;
 	char* pass = soulstream_config.password;
 
@@ -537,7 +537,7 @@ int login() {
 	return 0;
 }
 
-int search(char* str) {
+int ss_search(char* str) {
 	printf("asking server to search '%s'...\n", str);
 	pcode(&msg, SERVER_FILE_SEARCH);
 	p32(&msg, 0xB00BA);
@@ -553,7 +553,7 @@ int search(char* str) {
 	return 0;
 }
 
-int download(char* user, char* file) {
+int ss_download(char* user, char* file) {
 	printf("requesting `%s` of length %ld from `%s` ...\n", file, strlen(file), user);
 
 	Peer* peer = peer_from_user(user);
@@ -579,7 +579,7 @@ int download(char* user, char* file) {
 	return -1;
 }
 
-int soulstream_init(SoulstreamConfig conf) {
+int ss_init(SoulstreamConfig conf) {
 	soulstream_config = conf;
 
 	// *** initialize stuff *** 
@@ -650,12 +650,12 @@ int soulstream_init(SoulstreamConfig conf) {
        	return -1;
     }  
 
-	if(login() < 0) {
+	if(ss_login() < 0) {
 		printf("error: could not login!\n");
 		return -1;
 	}
 
-	if(set_listen_port(SERVER_PORT) < 0) {
+	if(ss_set_listen_port(SERVER_PORT) < 0) {
 		printf("error: could not set listening port!\n");
 		return -1;
 	}
@@ -664,7 +664,7 @@ int soulstream_init(SoulstreamConfig conf) {
 }
 
 // this a blocking function
-int soulstream_update() {
+int ss_update() {
 	switch(poll(node_fd, sizeof(node_fd) / sizeof(struct pollfd), -1)) {
 		case -1:
 			if(errno != EINTR) {
@@ -735,7 +735,7 @@ int soulstream_update() {
 	return 0;
 }
 
-int soulstream_close() {
+int ss_close() {
 	_nodes_close_pools();
 
 	// ...
