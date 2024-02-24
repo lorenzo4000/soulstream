@@ -5,3 +5,4 @@ todo
 run_testenv.sh
 *.o
 *.out
+*.log
